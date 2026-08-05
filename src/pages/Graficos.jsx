@@ -1,7 +1,7 @@
 // src/pages/Graficos.jsx
 import { useState, useEffect } from 'react';
 import TanqueCard from '../components/TanqueCard';
-import SkeletonBox from '../components/SkeletonBox'; // Asegurate de tenerlo
+import SkeletonBox from '../components/SkeletonBox';
 
 export default function Graficos() {
   const [loading, setLoading] = useState(true);

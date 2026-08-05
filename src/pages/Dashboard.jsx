@@ -10,25 +10,20 @@ export default function Dashboard() {
     const timer = setTimeout(() => {
       setLoading(false);
     }, 1000);
-    
+
     return () => clearTimeout(timer);
   }, []);
 
   return (
     <div className="flex mt-7 flex-col items-center justify-center">
-      <div className="p-8 rounded-2xl text-center max-w-md w-full">
+      <div className="p-8 rounded-2xl text-center w-full">
         <h1 className="text-4xl font-extrabold mb-4">
-          Panel de Control PLC 
+          Panel de Visualización
         </h1>
         <p className="text-gray-600 text-lg">
-         (Simulador)
         </p>
       </div>
-
-          {/* Acá metemos tu componente MqttListener adaptado o directo */}
-          <MqttListener />
-      
-
+      <MqttListener />
     </div>
   );
 }

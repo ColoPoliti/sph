@@ -19,7 +19,7 @@ export default function UserMenu() {
   return (
     <div className="relative" ref={menuRef}>
       <div className="flex items-center gap-4">
-              <span className=" font-bold text-white">Mariano</span>
+              <span className=" font-bold text-white">Usuario</span>
               <div className="w-8 h-8 rounded-full bg-blue-500"></div>
            
       <button onClick={() => setIsOpen(!isOpen)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-all">
