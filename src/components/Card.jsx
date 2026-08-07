@@ -3,7 +3,7 @@ import SkeletonBox from './SkeletonBox';
 
 export default function Card({ title, children, loading }) {
   return (
-    <div className="p-6 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-800  shadow-lg">
+    <div className="p-6 bg-white dark:bg-gray-900 border border-slate-800  dark:border-gray-800 ">
       {loading ? (
         // --- ESTADO DE CARGA (ESQUELETO) ---
         <div className="animate-pulse space-y-4">

@@ -3,7 +3,7 @@ import mqtt from 'mqtt';
 import { motion, useSpring, useTransform } from 'framer-motion';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
-import Card from './Card'; // Asegúrate de importar tu componente Card
+import Card from './Card'; 
 
 function AnimatedCounter({ value, className = "" }) {
     const numericValue = Number(value) || 0;
@@ -39,33 +39,39 @@ const leyendasEtapas = {
     3: "AGUA"
 };
 
+// Estado inicial en ceros absoluto
+const estadoEnCeros = {
+    etapa: -1,
+    estadoValvula: 0,
+    peso: 0,
+    caudal: 0,
+    liquidos: {
+        agua: { real: 0, setpoint: 50 },
+        alcohol: { real: 0, setpoint: 30 },
+        glicerina: { real: 0, setpoint: 10 },
+        colorante: { real: 0, setpoint: 1.5 }
+    }
+};
+
 export default function MqttListener() {
-    // Inicializamos el estado intentando leer lo último guardado en el navegador (F5 friendly)
+
     const [datosPlc, setDatosPlc] = useState(() => {
         try {
             const savedData = localStorage.getItem('ultimo_plc_data');
             if (savedData) {
-                return JSON.parse(savedData);
+                const parsed = JSON.parse(savedData);
+                if (parsed.etapa === -1) return estadoEnCeros;
+                return parsed;
             }
         } catch (e) {
             console.error("Error al leer localStorage:", e);
         }
-        return {
-            etapa: 0,
-            estadoValvula: 0,
-            peso: 0,
-            caudal: 0,
-            liquidos: {
-                agua: { real: 0, setpoint: 50 },
-                alcohol: { real: 0, setpoint: 30 },
-                glicerina: { real: 0, setpoint: 10 },
-                colorante: { real: 0, setpoint: 1.5 }
-            }
-        };
+        return estadoEnCeros;
     });
 
     const [conectadoBroker, setConectadoBroker] = useState(false);
     const [transmitiendo, setTransmitiendo] = useState(false);
+    const [ultimaHora, setUltimaHora] = useState(null);
     const [primeraCarga, setPrimeraCarga] = useState(false);
 
     const inactivityTimerRef = useRef(null);
@@ -79,7 +85,7 @@ export default function MqttListener() {
             username: 'admin',
             password: '12345',
             clean: true,
-            keepalive: 30, // Reducido a 30s para detectar cortes más rápido
+            keepalive: 30,
             reconnectPeriod: 2000,
         };
 
@@ -95,7 +101,6 @@ export default function MqttListener() {
             });
         });
 
-        // Forzamos la caída del estado del broker ante cualquier intento de reconexión o cierre
         client.on('reconnect', () => {
             console.warn("Intentando reconectar al broker...");
             if (isMounted) {
@@ -133,10 +138,12 @@ export default function MqttListener() {
 
             try {
                 const data = JSON.parse(msgString);
+                const ahora = new Date();
+                const horaFormateada = ahora.toLocaleTimeString();
 
-                // Si llega mensaje, aseguramos que el broker figura conectado
                 setConectadoBroker(true);
                 setTransmitiendo(true);
+                setUltimaHora(horaFormateada);
                 setPrimeraCarga(false);
 
                 if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
@@ -147,16 +154,20 @@ export default function MqttListener() {
                 }, 8000);
 
                 setDatosPlc(prev => {
-                    let updated = prev ? { ...prev } : {
-                        etapa: 0,
-                        estadoValvula: 0,
-                        peso: 0,
-                        caudal: 0,
-                        liquidos: {}
-                    };
+                    const nuevaEtapa = data.etapa ?? (prev ? prev.etapa : -1);
+                    if (nuevaEtapa === -1) {
+                        try {
+                            localStorage.setItem('ultimo_plc_data', JSON.stringify(estadoEnCeros));
+                        } catch (e) {
+                            console.error("Error al guardar en localStorage:", e);
+                        }
+                        return estadoEnCeros;
+                    }
+
+                    let updated = prev ? { ...prev } : { ...estadoEnCeros };
 
                     if (topic.startsWith('plc/001/')) {
-                        updated.etapa = data.etapa ?? updated.etapa;
+                        updated.etapa = nuevaEtapa;
                         updated.estadoValvula = data.estado ?? updated.estadoValvula;
                         updated.peso = data.peso ?? updated.peso;
                         updated.caudal = data.caudal ?? updated.caudal;
@@ -166,7 +177,6 @@ export default function MqttListener() {
                         updated.liquidos = data.liquidos;
                     }
 
-                    // Guardamos en el almacenamiento local para que sobreviva al F5
                     try {
                         localStorage.setItem('ultimo_plc_data', JSON.stringify(updated));
                     } catch (e) {
@@ -193,7 +203,7 @@ export default function MqttListener() {
     const etapaActual = datosPlc?.etapa ?? -1;
 
     const textoEtapaActual = etapaActual === -1 
-        ? "Esperando inicio de ciclo..." 
+        ? "Esperando inicio de ciclo" 
         : (nombresEtapas[etapaActual] || `Etapa ${etapaActual}`);
 
     const leyendaActual = etapaActual >= 0 ? leyendasEtapas[etapaActual] : "";
@@ -203,7 +213,7 @@ export default function MqttListener() {
             <div className="w-full max-w-[1600px] mx-auto space-y-6">
 
                 {/* Indicador superior de estado de red / broker / PLC */}
-                <div className="flex justify-between items-center px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg shadow-sm">
+                <div className="flex justify-between items-center px-4 py-2 bg-slate-900 dark:bg-slate-900/50 border border-slate-800 shadow-sm">
                     <div className="flex items-center gap-3 text-sm font-mono">
                         <span className="flex items-center gap-2">
                             <span className={`w-3 h-3 rounded-full ${conectadoBroker ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'}`}></span>
@@ -213,7 +223,9 @@ export default function MqttListener() {
                     <div className="flex items-center gap-3 text-sm font-mono">
                         <span className="flex items-center gap-2">
                             <span className={`w-3 h-3 rounded-full ${transmitiendo ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]'}`}></span>
-                            <span className={transmitiendo ? 'text-slate-300' : 'text-amber-400 font-bold'}>PLC: {transmitiendo ? 'Transmitiendo' : 'Sin transmisiones'}</span>
+                            <span className={transmitiendo ? 'text-slate-300' : 'text-amber-400 font-bold'}>
+                                {transmitiendo ? 'PLC: Transmitiendo' : `Última transmisión: ${ultimaHora || 'Ninguna'}`}
+                            </span>
                         </span>
                     </div>
                 </div>

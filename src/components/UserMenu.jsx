@@ -19,16 +19,16 @@ export default function UserMenu() {
   return (
     <div className="relative" ref={menuRef}>
       <div className="flex items-center gap-4">
-              <span className=" font-bold text-white">Usuario</span>
-              <div className="w-8 h-8 rounded-full bg-blue-500"></div>
+              <span className=" font-bold hidden md:block text-white">Admin</span>
+              <div className="w-8 h-8 rounded-full bg-secundario flex items-center justify-center text-white font-bold">A</div>
            
-      <button onClick={() => setIsOpen(!isOpen)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-all">
+      <button onClick={() => setIsOpen(!isOpen)} className="p-2rounded-full transition-all">
         <i className="fa fa-ellipsis-v text-xl" />
       </button>
 
       {/* Menú desplegable */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-900 border dark:border-gray-700 rounded-lg shadow-xl z-50">
+        <div className="absolute right-0 top-full mt-1 w-48 z-[999] bg-white dark:bg-gray-900 border dark:border-gray-700 shadow-xlnode-v">
           {userLinks.map((link) => (
             <button
               key={link.id}
