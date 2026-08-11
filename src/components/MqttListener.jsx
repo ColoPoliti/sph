@@ -60,7 +60,6 @@ export default function MqttListener() {
             const savedData = localStorage.getItem('ultimo_plc_data');
             if (savedData) {
                 const parsed = JSON.parse(savedData);
-                if (parsed.etapa === -1) return estadoEnCeros;
                 return parsed;
             }
         } catch (e) {
@@ -154,22 +153,20 @@ export default function MqttListener() {
                 }, 8000);
 
                 setDatosPlc(prev => {
-                    const nuevaEtapa = data.etapa ?? (prev ? prev.etapa : -1);
-                    if (nuevaEtapa === -1) {
-                        try {
-                            localStorage.setItem('ultimo_plc_data', JSON.stringify(estadoEnCeros));
-                        } catch (e) {
-                            console.error("Error al guardar en localStorage:", e);
-                        }
-                        return estadoEnCeros;
-                    }
-
                     let updated = prev ? { ...prev } : { ...estadoEnCeros };
 
+                    const nuevaEtapa = data.etapa ?? updated.etapa;
+                    updated.etapa = nuevaEtapa;
+
                     if (topic.startsWith('plc/001/')) {
-                        updated.etapa = nuevaEtapa;
                         updated.estadoValvula = data.estado ?? updated.estadoValvula;
-                        updated.peso = data.peso ?? updated.peso;
+                        // Si la etapa es -1, 4, 5 o 6 y viene en 0/undefined, evitamos que pise el último peso bueno
+                        const etapasSinMedicionActiva = [-1, 4, 5, 6];
+                        if (etapasSinMedicionActiva.includes(nuevaEtapa) && (data.peso === 0 || data.peso === undefined)) {
+                            // Mantiene el peso anterior
+                        } else {
+                            updated.peso = data.peso ?? updated.peso;
+                        }
                         updated.caudal = data.caudal ?? updated.caudal;
                     }
 
@@ -201,12 +198,15 @@ export default function MqttListener() {
     }, []);
 
     const etapaActual = datosPlc?.etapa ?? -1;
+    // Consideramos modo "en espera / sin líquidos activos" a las etapas -1, 4, 5 y 6
+    const etapasSinLiquidos = [-1, 4, 5, 6];
+    const enEspera = etapasSinLiquidos.includes(etapaActual);
 
     const textoEtapaActual = etapaActual === -1 
         ? "Esperando inicio de ciclo" 
         : (nombresEtapas[etapaActual] || `Etapa ${etapaActual}`);
 
-    const leyendaActual = etapaActual >= 0 ? leyendasEtapas[etapaActual] : "";
+    const leyendaActual = !enEspera && etapaActual >= 0 ? leyendasEtapas[etapaActual] : "";
 
     return (
         <div className="flex flex-col justify-center items-center px-6 py-8 w-full">
@@ -268,7 +268,11 @@ export default function MqttListener() {
                         <div className="flex items-center justify-center gap-6 h-full">
                             <div className="flex flex-col justify-center">
                                 <div className="text-6xl font-black dark:text-white flex items-baseline gap-1">
-                                    <AnimatedCounter value={datosPlc?.estadoValvula} />
+                                    {enEspera ? (
+                                        <span className="text-slate-500">-</span>
+                                    ) : (
+                                        <AnimatedCounter value={datosPlc?.estadoValvula} />
+                                    )}
                                     <span className="text-5xl dark:text-indigo-400">%</span>
                                 </div>
                             </div>
@@ -277,7 +281,7 @@ export default function MqttListener() {
                                 <motion.div
                                     className="w-full bg-gradient-to-t from-indigo-600 via-sky-500 to-emerald-400 shadow-lg shadow-indigo-500/30"
                                     initial={{ height: "0%" }}
-                                    animate={{ height: `${Math.min(Math.max(Number(datosPlc?.estadoValvula) || 0, 0), 100)}%` }}
+                                    animate={{ height: enEspera ? "0%" : `${Math.min(Math.max(Number(datosPlc?.estadoValvula) || 0, 0), 100)}%` }}
                                     transition={{ type: "spring", stiffness: 60, damping: 15 }}
                                 />
                                 <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20 px-2 py-1">
@@ -291,7 +295,11 @@ export default function MqttListener() {
 
                     <Card title="CAUDAL ACTUAL" className="items-center justify-center">
                         <div className="text-6xl font-black dark:text-white flex items-baseline mt-10 justify-center gap-1">
-                            <AnimatedCounter value={datosPlc?.caudal} />
+                            {enEspera ? (
+                                <span className="text-slate-500">-</span>
+                            ) : (
+                                <AnimatedCounter value={datosPlc?.caudal} />
+                            )}
                             <p className="text-lg justify-center text-gray-950 dark:text-indigo-600">litros/h</p>
                         </div>
                     </Card>
@@ -300,7 +308,26 @@ export default function MqttListener() {
                 {/* Fila 3: Líquidos */}
                 <div className="w-full">
                     <Card title="LÍQUIDOS (REAL / SETPOINT)">
-                        {datosPlc?.liquidos ? (
+                        {enEspera ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
+                                    <span className="dark:text-slate-400">Agua</span>
+                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.agua?.setpoint ?? 50} kg</span>
+                                </div>
+                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
+                                    <span className="dark:text-slate-400">Alcohol</span>
+                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.alcohol?.setpoint ?? 30} kg</span>
+                                </div>
+                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
+                                    <span className="dark:text-slate-400">Glicerina</span>
+                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.glicerina?.setpoint ?? 10} kg</span>
+                                </div>
+                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
+                                    <span className="dark:text-slate-400">Colorante</span>
+                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.colorante?.setpoint ?? 1.5} kg</span>
+                                </div>
+                            </div>
+                        ) : datosPlc?.liquidos ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                 <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
                                     <span className="dark:text-slate-400">Agua</span>
