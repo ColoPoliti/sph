@@ -1,135 +1,105 @@
 import React, { useEffect, useState, useRef } from 'react';
 import mqtt from 'mqtt';
-import { motion, useSpring, useTransform } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
-import Card from './Card'; 
+import colorLogo from '../assets/logo-foot.png'; 
+import { faFlask, faIndustry, faSprayCan, faCogs } from '@fortawesome/free-solid-svg-icons';
+import { 
+    faMicrochip, 
+    faServer, 
+    faGaugeHigh, 
+    faBars, 
+    faTimes 
+} from '@fortawesome/free-solid-svg-icons';
 
-function AnimatedCounter({ value, className = "" }) {
-    const numericValue = Number(value) || 0;
-    
-    const spring = useSpring(numericValue, { 
-        mass: 0.5, 
-        stiffness: 80, 
-        damping: 15 
-    });
-    
-    const display = useTransform(spring, (current) => current.toFixed(1));
+import PlcOneView from './plcs/PlcOneView';
+import PlcTwoView from './plcs/PlcTwoView';
+import PlcThreeView from './plcs/PlcThreeView';
+import PlcFourView from './plcs/PlcFourView';
 
-    useEffect(() => {
-        spring.set(numericValue);
-    }, [spring, numericValue]);
-
-    return <motion.span className={className}>{display}</motion.span>;
-}
-
-const nombresEtapas = [
-    "Carga de alcohol",
-    "Carga de colorante y encendido del mezclador",
-    "Carga de glicerina",
-    "Cargado de agua",
-    "Cargado de perfume",
-    "Impresión de etiqueta",
-    "Reseteo de ciclo"
-];
-
-const leyendasEtapas = {
-    0: "ALCOHOL",
-    2: "GLICERINA",
-    3: "AGUA"
-};
-
-// Estado inicial en ceros absoluto
-const estadoEnCeros = {
-    etapa: -1,
-    estadoValvula: 0,
-    peso: 0,
-    caudal: 0,
-    liquidos: {
-        agua: { real: 0, setpoint: 50 },
-        alcohol: { real: 0, setpoint: 30 },
-        glicerina: { real: 0, setpoint: 10 },
-        colorante: { real: 0, setpoint: 1.5 }
+const estadosIniciales = {
+    'plc/001': {
+        etapa: -1,
+        estadoValvula: 0,
+        peso: 0,
+        caudal: 0,
+        transmitiendo: false,
+        ultimaHora: null
+    },
+    'plc/002': {
+        etapa: -1,
+        estadoValvula: 0,
+        peso: 0,
+        caudal: 0,
+        transmitiendo: false,
+        ultimaHora: null
+    },
+    'plc/003': {
+        etapa: -1,
+        estadoValvula: 0,
+        peso: 0,
+        caudal: 0,
+        transmitiendo: false,
+        ultimaHora: null
+    },
+    'plc/004': {
+        etapa: -1,
+        estadoValvula: 0,
+        peso: 0,
+        caudal: 0,
+        transmitiendo: false,
+        ultimaHora: null
     }
 };
 
-export default function MqttListener() {
+const TOPICS_SUSCRIPCION = [
+    'plc/001/#',
+    'plc/002/#',
+    'plc/003/#',
+    'plc/004/#'
+];
 
-    const [datosPlc, setDatosPlc] = useState(() => {
+export default function MqttListener({ toggleTheme, theme }) {
+    const [activeTab, setActiveTab] = useState('plc1');
+    const [isExpanded, setIsExpanded] = useState(true);
+
+    const [dispositivosData, setDispositivosData] = useState(() => {
         try {
-            const savedData = localStorage.getItem('ultimo_plc_data');
-            if (savedData) {
-                const parsed = JSON.parse(savedData);
-                return parsed;
-            }
+            const savedData = localStorage.getItem('ultimo_multitopics_data');
+            if (savedData) return JSON.parse(savedData);
         } catch (e) {
             console.error("Error al leer localStorage:", e);
         }
-        return estadoEnCeros;
+        return estadosIniciales;
     });
 
     const [conectadoBroker, setConectadoBroker] = useState(false);
-    const [transmitiendo, setTransmitiendo] = useState(false);
-    const [ultimaHora, setUltimaHora] = useState(null);
-    const [primeraCarga, setPrimeraCarga] = useState(false);
-
-    const inactivityTimerRef = useRef(null);
+    const inactivityTimersRef = useRef({});
 
     useEffect(() => {
         let isMounted = true;
-        const brokerUrl = 'ws://mqtt.marcospoliti.ar:9001';
+        const brokerUrl = 'wss://mqtt.marcospoliti.ar:9001/';
 
         const opciones = {
-            clientId: 'react_client_' + Math.random().toString(16).substring(2, 10) + Date.now().toString(16),
-            username: 'admin',
-            password: '12345',
+            clientId: 'react_client_' + Math.random().toString(16).substring(2, 10),
             clean: true,
-            keepalive: 30,
-            reconnectPeriod: 2000,
+            connectTimeout: 4000,
+            reconnectPeriod: 1000,
         };
 
         const client = mqtt.connect(brokerUrl, opciones);
 
         client.on('connect', () => {
             if (!isMounted) return;
-            console.log("Conectado al broker MQTT");
             setConectadoBroker(true);
-            
-            client.subscribe('plc/001/#', (err) => {
+            client.subscribe(TOPICS_SUSCRIPCION, (err) => {
                 if (err) console.error("Error al suscribirse:", err);
             });
         });
 
-        client.on('reconnect', () => {
-            console.warn("Intentando reconectar al broker...");
-            if (isMounted) {
-                setConectadoBroker(false);
-                setTransmitiendo(false);
-            }
-        });
-
-        client.on('error', (err) => {
-            console.error("Error de conexión MQTT:", err);
-            if (isMounted) {
-                setConectadoBroker(false);
-                setTransmitiendo(false);
-            }
-        });
-
-        client.on('offline', () => {
-            console.warn("El cliente MQTT se encuentra offline");
-            if (isMounted) {
-                setConectadoBroker(false);
-                setTransmitiendo(false);
-            }
-        });
-
-        client.on('close', () => {
-            if (isMounted) {
-                setConectadoBroker(false);
-                setTransmitiendo(false);
-            }
-        });
+        client.on('error', () => { if (isMounted) setConectadoBroker(false); });
+        client.on('offline', () => { if (isMounted) setConectadoBroker(false); });
+        client.on('close', () => { if (isMounted) setConectadoBroker(false); });
 
         client.on('message', (topic, message) => {
             if (!isMounted) return;
@@ -141,41 +111,106 @@ export default function MqttListener() {
                 const horaFormateada = ahora.toLocaleTimeString();
 
                 setConectadoBroker(true);
-                setTransmitiendo(true);
-                setUltimaHora(horaFormateada);
-                setPrimeraCarga(false);
 
-                if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-                inactivityTimerRef.current = setTimeout(() => {
-                    if (isMounted) {
-                        setTransmitiendo(false);
+                let plcKey = null;
+                if (topic.startsWith('plc/001')) plcKey = 'plc/001';
+                else if (topic.startsWith('plc/002')) plcKey = 'plc/002';
+                else if (topic.startsWith('plc/003')) plcKey = 'plc/003';
+                else if (topic.startsWith('plc/004')) plcKey = 'plc/004';
+
+                if (plcKey) {
+                    if (inactivityTimersRef.current[plcKey]) {
+                        clearTimeout(inactivityTimersRef.current[plcKey]);
                     }
-                }, 8000);
 
-                setDatosPlc(prev => {
-                    let updated = prev ? { ...prev } : { ...estadoEnCeros };
-
-                    const nuevaEtapa = data.etapa ?? updated.etapa;
-                    updated.etapa = nuevaEtapa;
-
-                    if (topic.startsWith('plc/001/')) {
-                        updated.estadoValvula = data.estado ?? updated.estadoValvula;
-                        // Si la etapa es -1, 4, 5 o 6 y viene en 0/undefined, evitamos que pise el último peso bueno
-                        const etapasSinMedicionActiva = [-1, 4, 5, 6];
-                        if (etapasSinMedicionActiva.includes(nuevaEtapa) && (data.peso === 0 || data.peso === undefined)) {
-                            // Mantiene el peso anterior
-                        } else {
-                            updated.peso = data.peso ?? updated.peso;
+                    inactivityTimersRef.current[plcKey] = setTimeout(() => {
+                        if (isMounted) {
+                            setDispositivosData(prev => {
+                                const currentPlc = prev[plcKey];
+                                if (!currentPlc) return prev;
+                                const updated = {
+                                    ...prev,
+                                    [plcKey]: { ...currentPlc, transmitiendo: false }
+                                };
+                                localStorage.setItem('ultimo_multitopics_data', JSON.stringify(updated));
+                                return updated;
+                            });
                         }
-                        updated.caudal = data.caudal ?? updated.caudal;
-                    }
+                    }, 8000);
+                }
 
-                    if (data.liquidos) {
-                        updated.liquidos = data.liquidos;
+                setDispositivosData(prev => {
+                    let updated = { ...prev };
+                    const etapasSinMedicionActiva = [-1, 4, 5, 6];
+
+                    if (topic.startsWith('plc/001')) {
+                        const current = updated['plc/001'] || estadosIniciales['plc/001'];
+                        const nuevaEtapa = data.etapa ?? current.etapa;
+                        let pesoFinal = current.peso;
+                        if (!(etapasSinMedicionActiva.includes(nuevaEtapa) && (data.peso === 0 || data.peso === undefined))) {
+                            pesoFinal = data.peso ?? current.peso;
+                        }
+
+                        updated['plc/001'] = {
+                            ...current,
+                            etapa: nuevaEtapa,
+                            estadoValvula: data.estado ?? current.estadoValvula,
+                            peso: pesoFinal,
+                            caudal: data.caudal ?? current.caudal,
+                            transmitiendo: true,
+                            ultimaHora: horaFormateada
+                        };
+                    } 
+                    else if (topic.startsWith('plc/002')) {
+                        const current = updated['plc/002'] || estadosIniciales['plc/002'];
+                        updated['plc/002'] = {
+                            ...current,
+                            ...data,
+                            transmitiendo: true,
+                            ultimaHora: horaFormateada
+                        };
+                    } 
+                    else if (topic.startsWith('plc/003')) {
+                        const current = updated['plc/003'] || estadosIniciales['plc/003'];
+                        const nuevaEtapa = data.etapa ?? current.etapa;
+                        let pesoFinal = current.peso;
+                        if (!(etapasSinMedicionActiva.includes(nuevaEtapa) && (data.peso === 0 || data.peso === undefined))) {
+                            pesoFinal = data.peso ?? current.peso;
+                        }
+
+                        updated['plc/003'] = { 
+                            ...current, 
+                            ...data,
+                            etapa: nuevaEtapa,
+                            estadoValvula: data.estado ?? data.estadoValvula ?? current.estadoValvula,
+                            peso: pesoFinal,
+                            caudal: data.caudal ?? current.caudal,
+                            transmitiendo: true,
+                            ultimaHora: horaFormateada
+                        };
+                    }
+                    else if (topic.startsWith('plc/004')) {
+                        const current = updated['plc/004'] || estadosIniciales['plc/004'];
+                        const nuevaEtapa = data.etapa ?? current.etapa;
+                        let pesoFinal = current.peso;
+                        if (!(etapasSinMedicionActiva.includes(nuevaEtapa) && (data.peso === 0 || data.peso === undefined))) {
+                            pesoFinal = data.peso ?? current.peso;
+                        }
+
+                        updated['plc/004'] = {
+                            ...current,
+                            ...data,
+                            etapa: nuevaEtapa,
+                            estadoValvula: data.estado ?? data.estadoValvula ?? current.estadoValvula,
+                            peso: pesoFinal,
+                            caudal: data.caudal ?? current.caudal,
+                            transmitiendo: true,
+                            ultimaHora: horaFormateada
+                        };
                     }
 
                     try {
-                        localStorage.setItem('ultimo_plc_data', JSON.stringify(updated));
+                        localStorage.setItem('ultimo_multitopics_data', JSON.stringify(updated));
                     } catch (e) {
                         console.error("Error al guardar en localStorage:", e);
                     }
@@ -184,183 +219,187 @@ export default function MqttListener() {
                 });
 
             } catch (e) {
-                console.error("Error al parsear el JSON de MQTT:", e);
+                console.error("Error al parsear JSON:", e);
             }
         });
 
         return () => {
             isMounted = false;
-            if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-            if (client) {
-                client.end(true);
-            }
+            Object.values(inactivityTimersRef.current).forEach(timer => clearTimeout(timer));
+            if (client) client.end(true);
         };
     }, []);
 
-    const etapaActual = datosPlc?.etapa ?? -1;
-    // Consideramos modo "en espera / sin líquidos activos" a las etapas -1, 4, 5 y 6
-    const etapasSinLiquidos = [-1, 4, 5, 6];
-    const enEspera = etapasSinLiquidos.includes(etapaActual);
-
-    const textoEtapaActual = etapaActual === -1 
-        ? "Esperando inicio de ciclo" 
-        : (nombresEtapas[etapaActual] || `Etapa ${etapaActual}`);
-
-    const leyendaActual = !enEspera && etapaActual >= 0 ? leyendasEtapas[etapaActual] : "";
+    const currentPlcData = dispositivosData[
+        activeTab === 'plc1' ? 'plc/001' : 
+        activeTab === 'plc2' ? 'plc/002' : 
+        activeTab === 'plc3' ? 'plc/003' : 'plc/004'
+    ];
 
     return (
-        <div className="flex flex-col justify-center items-center px-6 py-8 w-full">
-            <div className="w-full max-w-[1600px] mx-auto space-y-6">
+        <div className="flex h-screen w-full dark:bg-gray-950 dark:text-white relative overflow-hidden">
+            
+            {/* BARRA INFERIOR MÓVIL */}
+            <div className="lg:hidden flex items-center justify-around bg-white dark:bg-slate-900 border-t border-slate-800 fixed bottom-0 left-0 right-0 z-50 h-16 shadow-lg px-2">
+                <button
+                    onClick={() => setActiveTab('plc1')}
+                    className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${
+                        activeTab === 'plc1' ? 'text-indigo-500 font-bold' : 'dark:text-slate-400 text-slate-950 hover:text-slate-200'
+                    }`}
+                >
+                    <FontAwesomeIcon icon={faMicrochip} size="lg" />
+                    <span className="text-[10px] mt-1">PLC 1</span>
+                </button>
 
-                {/* Indicador superior de estado de red / broker / PLC */}
-                <div className="flex justify-between items-center px-4 py-2 bg-slate-900 dark:bg-slate-900/50 border border-slate-800 shadow-sm">
-                    <div className="flex items-center gap-3 text-sm font-mono">
-                        <span className="flex items-center gap-2">
-                            <span className={`w-3 h-3 rounded-full ${conectadoBroker ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'}`}></span>
-                            <span className={conectadoBroker ? 'text-slate-300' : 'text-red-400 font-bold'}>Servidor: {conectadoBroker ? 'Conectado' : 'Desconectado'}</span>
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-sm font-mono">
-                        <span className="flex items-center gap-2">
-                            <span className={`w-3 h-3 rounded-full ${transmitiendo ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]'}`}></span>
-                            <span className={transmitiendo ? 'text-slate-300' : 'text-amber-400 font-bold'}>
-                                {transmitiendo ? 'PLC: Transmitiendo' : `Última transmisión: ${ultimaHora || 'Ninguna'}`}
-                            </span>
-                        </span>
-                    </div>
-                </div>
+                <button
+                    onClick={() => setActiveTab('plc2')}
+                    className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${
+                        activeTab === 'plc2' ? 'text-sky-500 font-bold' : 'dark:text-slate-400 text-slate-950 hover:text-slate-200'
+                    }`}
+                >
+                    <FontAwesomeIcon icon={faGaugeHigh} size="lg" />
+                    <span className="text-[10px] mt-1">PLC 2</span>
+                </button>
 
-                {/* Fila 1: Etapa Actual y Balanza */}
-                <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-6">
-                    <Card title="ETAPA ACTUAL">
-                        <div className="overflow-hidden py-1">
-                            <motion.span 
-                                key={textoEtapaActual}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                transition={{ duration: 0.3, ease: "easeInOut" }}
-                                className="text-4xl font-black text-emerald-400 uppercase leading-snug block"
-                            >
-                                {textoEtapaActual}
-                            </motion.span>
-                        </div>
-                    </Card>
+                <button
+                    onClick={() => setActiveTab('plc3')}
+                    className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${
+                        activeTab === 'plc3' ? 'text-emerald-500 font-bold' : 'dark:text-slate-400 text-slate-950 hover:text-slate-200'
+                    }`}
+                >
+                    <FontAwesomeIcon icon={faServer} size="lg" />
+                    <span className="text-[10px] mt-1">PLC 3</span>
+                </button>
 
-                    <Card title="BALANZA">
-                        <div className="flex justify-center items-center mb-2">
-                            {leyendaActual && (
-                                <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xl font-black px-2.5 py-1 rounded-full animate-pulse">
-                                    {leyendaActual}
-                                </span>
-                            )}
-                        </div>
-                        <div className="text-6xl font-black justify-center dark:text-white flex items-baseline gap-1">
-                            <AnimatedCounter value={datosPlc?.peso} />
-                            <span className="text-xl dark:text-indigo-400">kg</span>
-                        </div>
-                    </Card>
-                </div>
-
-                {/* Fila 2: Estado Válvula y Caudal Actual */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card title="ESTADO VÁLVULA">
-                        <div className="flex items-center justify-center gap-6 h-full">
-                            <div className="flex flex-col justify-center">
-                                <div className="text-6xl font-black dark:text-white flex items-baseline gap-1">
-                                    {enEspera ? (
-                                        <span className="text-slate-500">-</span>
-                                    ) : (
-                                        <AnimatedCounter value={datosPlc?.estadoValvula} />
-                                    )}
-                                    <span className="text-5xl dark:text-indigo-400">%</span>
-                                </div>
-                            </div>
-
-                            <div className="w-10 h-28 dark:bg-slate-950/80 bg-white p-1 border dark:border-slate-800 border-slate-950 relative flex items-end overflow-hidden shadow-inner">
-                                <motion.div
-                                    className="w-full bg-gradient-to-t from-indigo-600 via-sky-500 to-emerald-400 shadow-lg shadow-indigo-500/30"
-                                    initial={{ height: "0%" }}
-                                    animate={{ height: enEspera ? "0%" : `${Math.min(Math.max(Number(datosPlc?.estadoValvula) || 0, 0), 100)}%` }}
-                                    transition={{ type: "spring", stiffness: 60, damping: 15 }}
-                                />
-                                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20 px-2 py-1">
-                                    <div className="w-full border-b dark:border-white border-slate-950"></div>
-                                    <div className="w-full border-b dark:border-white border-slate-950"></div>
-                                    <div className="w-full border-b dark:border-white border-slate-950"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </Card>
-
-                    <Card title="CAUDAL ACTUAL" className="items-center justify-center">
-                        <div className="text-6xl font-black dark:text-white flex items-baseline mt-10 justify-center gap-1">
-                            {enEspera ? (
-                                <span className="text-slate-500">-</span>
-                            ) : (
-                                <AnimatedCounter value={datosPlc?.caudal} />
-                            )}
-                            <p className="text-lg justify-center text-gray-950 dark:text-indigo-600">litros/h</p>
-                        </div>
-                    </Card>
-                </div>
-
-                {/* Fila 3: Líquidos */}
-                <div className="w-full">
-                    <Card title="LÍQUIDOS (REAL / SETPOINT)">
-                        {enEspera ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Agua</span>
-                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.agua?.setpoint ?? 50} kg</span>
-                                </div>
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Alcohol</span>
-                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.alcohol?.setpoint ?? 30} kg</span>
-                                </div>
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Glicerina</span>
-                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.glicerina?.setpoint ?? 10} kg</span>
-                                </div>
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Colorante</span>
-                                    <span className="dark:text-slate-500 text-xl">- / {datosPlc?.liquidos?.colorante?.setpoint ?? 1.5} kg</span>
-                                </div>
-                            </div>
-                        ) : datosPlc?.liquidos ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Agua</span>
-                                    <span className="dark:text-white text-gray-950 text-xl flex items-center gap-1">
-                                        <AnimatedCounter className="text-2xl text-emerald-400 font-black" value={datosPlc.liquidos.agua?.real} /> / {datosPlc.liquidos.agua?.setpoint} kg
-                                    </span>
-                                </div>
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Alcohol</span>
-                                    <span className="dark:text-white text-gray-950 text-xl flex items-center gap-1">
-                                        <AnimatedCounter className="text-2xl text-emerald-400 font-black" value={datosPlc.liquidos.alcohol?.real} /> / {datosPlc.liquidos.alcohol?.setpoint} kg
-                                    </span>
-                                </div>
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Glicerina</span>
-                                    <span className="dark:text-white text-gray-950 text-xl flex items-center gap-1">
-                                        <AnimatedCounter className="text-2xl text-emerald-400 font-black" value={datosPlc.liquidos.glicerina?.real} /> / {datosPlc.liquidos.glicerina?.setpoint} kg
-                                    </span>
-                                </div>
-                                <div className="bg-white dark:bg-gray-950/60 border-gray-200 dark:border-gray-800 shadow-sm p-3 flex justify-between items-center border border-slate-800/80">
-                                    <span className="dark:text-slate-400">Colorante</span>
-                                    <span className="dark:text-white text-gray-950 text-xl flex items-center gap-1">
-                                        <AnimatedCounter className="text-2xl text-emerald-400 font-black" value={datosPlc.liquidos.colorante?.real} /> / {datosPlc.liquidos.colorante?.setpoint} kg
-                                    </span>
-                                </div>
-                            </div>
-                        ) : (
-                            <span className="text-sm text-slate-500 italic">Esperando datos de líquidos...</span>
-                        )}
-                    </Card>
-                </div>
-
+                <button
+                    onClick={() => setActiveTab('plc4')}
+                    className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${
+                        activeTab === 'plc4' ? 'text-teal-500 font-bold' : 'dark:text-slate-400 text-slate-950 hover:text-slate-200'
+                    }`}
+                >
+                    <FontAwesomeIcon icon={faServer} size="lg" />
+                    <span className="text-[10px] mt-1">PLC 4</span>
+                </button>
             </div>
+
+            {/* SIDEBAR DE ESCRITORIO */}
+            <aside className={`
+                hidden lg:flex flex-col justify-between
+                fixed top-16 left-0 h-[calc(100vh-4rem)]
+                bg-slate-900 border-r border-slate-800 
+                p-4 lg:p-6 z-40 shadow
+                transition-all duration-300 ease-in-out
+                ${isExpanded ? 'w-72' : 'w-20'}
+            `}>
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                        <div className={`flex items-center gap-3 overflow-hidden transition-all duration-300 ${!isExpanded && 'hidden'}`}>
+                            <h1 className="font-bold tracking-wider text-sm whitespace-nowrap dark:text-slate-300 text-slate-300">PANEL DE PLC</h1>
+                        </div>
+
+                        <button 
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            className="flex items-center justify-center p-2 rounded-lg hover:bg-slate-800/60 text-slate-400 hover:text-white transition-colors w-full lg:w-auto"
+                        >
+                            <FontAwesomeIcon icon={isExpanded ? faTimes : faBars} />
+                        </button>
+                    </div>
+
+                    <nav className="space-y-2">
+    <button
+        onClick={() => setActiveTab('plc1')}
+        className={`w-full flex items-center ${isExpanded ? 'gap-3 px-4' : 'justify-center px-0'} py-3 rounded-lg text-sm transition-all group relative ${
+            activeTab === 'plc1' 
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 font-bold' 
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+        }`}
+    >
+        <span className="text-lg w-6 flex items-center justify-center shrink-0">
+            <FontAwesomeIcon icon={faFlask} />
+        </span>
+        <span className={`whitespace-nowrap transition-all duration-300 ${!isExpanded && 'hidden'}`}>PLC001 Elaboración</span>
+    </button>
+
+    <button
+        onClick={() => setActiveTab('plc2')}
+        className={`w-full flex items-center ${isExpanded ? 'gap-3 px-4' : 'justify-center px-0'} py-3 rounded-lg text-sm transition-all group relative ${
+            activeTab === 'plc2' 
+                ? 'bg-sky-600 text-white shadow-lg shadow-sky-600/30 font-bold' 
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+        }`}
+    >
+        <span className="text-lg w-6 flex items-center justify-center shrink-0">
+            <FontAwesomeIcon icon={faFlask} />
+        </span>
+        <span className={`whitespace-nowrap transition-all duration-300 ${!isExpanded && 'hidden'}`}>PLC002 Elaboración</span>
+    </button>
+
+    <button
+        onClick={() => setActiveTab('plc3')}
+        className={`w-full flex items-center ${isExpanded ? 'gap-3 px-4' : 'justify-center px-0'} py-3 rounded-lg text-sm transition-all group relative ${
+            activeTab === 'plc3' 
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' 
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+        }`}
+    >
+        <span className="text-lg w-6 flex items-center justify-center shrink-0">
+            <FontAwesomeIcon icon={faSprayCan} />
+        </span>
+        <span className={`whitespace-nowrap transition-all duration-300 ${!isExpanded && 'hidden'}`}>PLC003 Aerosoles</span>
+    </button>
+
+    <button
+        onClick={() => setActiveTab('plc4')}
+        className={`w-full flex items-center ${isExpanded ? 'gap-3 px-4' : 'justify-center px-0'} py-3 rounded-lg text-sm transition-all group relative ${
+            activeTab === 'plc4' 
+                ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/30 font-bold' 
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+        }`}
+    >
+        <span className="text-lg w-6 flex items-center justify-center shrink-0">
+            <FontAwesomeIcon icon={faSprayCan} />
+        </span>
+        <span className={`whitespace-nowrap transition-all duration-300 ${!isExpanded && 'hidden'}`}>PLC004 Aerosoles</span>
+    </button>
+</nav>
+                </div>
+
+                <div className="flex items-center gap-2.5 overflow-hidden">
+                    <img 
+                        src={colorLogo} 
+                        alt="Logo Color" 
+                        className="h-7 w-7 object-contain flex-shrink-0" 
+                    />
+                    {isExpanded && (
+                        <span 
+                            className="font-montserrat text-sm font-bold tracking-tight text-white/90 whitespace-nowrap"
+                            style={{ fontFamily: 'Montserrat, sans-serif' }}
+                        >
+                            industria 4
+                        </span>
+                    )}
+                </div>
+            </aside>
+
+            {/* CONTENIDO PRINCIPAL */}
+            <main className={`flex-1 px-4 lg:px-6 py-4 overflow-y-auto h-full pb-24 lg:pb-6 mt-0 lg:mt-12 transition-all duration-300 ${isExpanded ? 'lg:ml-72' : 'lg:ml-20'}`}>
+                <div className="w-full max-w-[1400px] mx-auto space-y-4">
+                    <div className="flex justify-between items-center px-4 py-2 bg-slate-900 border border-slate-800 shadow-sm rounded-lg text-sm">
+                        <div className="flex items-center gap-2">
+                            <span className={`w-3 h-3 rounded-full ${conectadoBroker ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
+                            <span className="text-slate-300">Servidor MQTT: {conectadoBroker ? 'Online' : 'Offline'}</span>
+                        </div>
+                        <div className="text-slate-400 text-sm">
+                            {currentPlcData?.transmitiendo ? <span className="text-emerald-400 animate-pulse">Recibiendo datos </span> : <span>{`Última señal: ${currentPlcData?.ultimaHora || 'Ninguna'}`}</span>}
+                        </div>
+                    </div>
+
+                    {activeTab === 'plc1' && <PlcOneView data={dispositivosData['plc/001']} />}
+                    {activeTab === 'plc2' && <PlcTwoView data={dispositivosData['plc/002']} />}
+                    {activeTab === 'plc3' && <PlcThreeView data={dispositivosData['plc/003']} />}
+                    {activeTab === 'plc4' && <PlcFourView data={dispositivosData['plc/004']} />}
+                </div>
+            </main>
         </div>
     );
 }

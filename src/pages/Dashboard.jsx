@@ -15,12 +15,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="flex mt-7 flex-col items-center justify-center">
-      <div className="p-8 rounded-2xl text-center w-full">
-        <h1 className="text-4xl font-extrabold mb-2">
-          Panel de Visualización
-        </h1>
-      </div>
+    <div className="flex flex-col items-center justify-center dark:text-white">
       <MqttListener />
     </div>
   );
