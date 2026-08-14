@@ -78,7 +78,7 @@ export default function MqttListener({ toggleTheme, theme }) {
 
     useEffect(() => {
         let isMounted = true;
-        const brokerUrl = 'wss://mqtt.marcospoliti.ar:9001/';
+        const brokerUrl = 'wss://mqtt.marcospoliti.ar:8084/';
 
         const opciones = {
             clientId: 'react_client_' + Math.random().toString(16).substring(2, 10),
